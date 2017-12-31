@@ -9,6 +9,7 @@
 #include <kern/pmap.h>
 #include <kern/kclock.h>
 #include <kern/env.h>
+#include <kern/cpu.h>
 
 // These variables are set by i386_detect_memory()
 size_t npages;			// Amount of physical memory (in pages)
@@ -58,6 +59,7 @@ i386_detect_memory(void)
 // Set up memory mappings above UTOP.
 // --------------------------------------------------------------
 
+static void mem_init_mp(void);
 static void check_page_free_list(bool only_low_memory);
 static void check_page_alloc(void);
 static void check_kern_pgdir(void);
@@ -238,6 +240,9 @@ mem_init(void)
     perm=PTE_W|PTE_P;
     boot_map_region(kern_pgdir,KERNBASE,ROUNDUP((0xFFFFFFFF-KERNBASE),PGSIZE),0,perm);
 
+	// Initialize the SMP-related parts of the memory map
+	mem_init_mp();
+
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
 
@@ -263,6 +268,52 @@ mem_init(void)
 	check_page_installed_pgdir();
 }
 
+// Modify mappings in kern_pgdir to support SMP
+//   - Remap [IOMEMBASE, 2^32) to physical address [IOMEM_PADDR, 2^32)
+//   - Map the per-CPU stacks in the region [KSTACKTOP-PTSIZE, KSTACKTOP)
+// See the revised inc/memlayout.h
+// 修改kern_pgdir中的映射以支持SMP：1. 重新将[IOMEMBASE, 2^32)映射到物理地址的[IOMEM_PADDR, 2^32); 
+// 2. 映射位于[KSTACKTOP-PTSIZE, KSTACKTOP)的per-CPU
+// 在之前的作业中，我们已经将bootstack映射的物理内存(just below KSTACKTOP)作为BSP的kernel stack。
+// 现在该函数主要将每个CPU的内核堆栈映射到这个区域，其中KSTKGAP的size大小的保护页作为缓冲区
+static void
+mem_init_mp(void)
+{
+	// Create a direct mapping at the top of virtual address space starting
+	// at IOMEMBASE for accessing the LAPIC unit using memory-mapped I/O.
+    boot_map_region(kern_pgdir, IOMEMBASE, -IOMEMBASE, IOMEM_PADDR, PTE_W);
+
+	// Map per-CPU stacks starting at KSTACKTOP, for up to 'NCPU' CPUs.
+	//
+	// For CPU i, use the physical memory that 'percpu_kstacks[i]' refers
+	// to as its kernel stack. CPU i's kernel stack grows down from virtual
+	// address kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP), and is
+	// divided into two pieces, just like the single stack you set up in
+	// mem_init:
+	//     * [kstacktop_i - KSTKSIZE, kstacktop_i)
+	//          -- backed by physical memory
+	//     * [kstacktop_i - (KSTKSIZE + KSTKGAP), kstacktop_i - KSTKSIZE)
+	//          -- not backed; so if the kernel overflows its stack,
+	//             it will fault rather than overwrite another CPU's stack.
+	//             Known as a "guard page".
+	//     Permissions: kernel RW, user NONE
+	// 映射从KSTAXKTOP开始的per-CPU，至多有NCPU个CPU
+    // 对于CPU i，将percpu_kstacks[i]指向的物理内存作为他的kernel stack，
+    // CPU i的kernel stack 从虚拟地址kstacktop_i=KSTAXKTOP - i * (KSTKSIZE + KSTKGAP)处
+    // 向下增长，并且被分成两部分:1. KSTKSIZE的kernel stack；2. KSTKGAP的保护页(缓冲区，
+    // 防止栈溢出影响了其他cpu的kernel stack)
+	// LAB 4: Your code here:
+    int i = 0;
+    uintptr_t kstacktop_i;
+    for (i = 0; i < NCPU; ++i) {
+        kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
+        // 该函数在lab1中实现boot_map_region(pde_t *pgdir, uinitptr va, size_t size, phyaddr_t pa, int perm)
+        // ，主要功能是将虚拟地址[va, va+size)与物理地址[pa, pa+size)进行映射,并将映射关系加到padir中
+        boot_map_region(kern_pgdir, kstacktop_i - KSTKSIZE, ROUNDUP(KSTKSIZE, PGSIZE), PADDR(percpu_kstacks[i]), PTE_W | PTE_P);
+    }
+
+}
+
 // --------------------------------------------------------------
 // Tracking of physical pages.
 // The 'pages' array has one 'struct Page' entry per physical page.
@@ -278,11 +329,34 @@ mem_init(void)
 void
 page_init(void)
 {
+
+	// LAB 4:
+	// Change your code to mark the physical page at MPENTRY_PADDR
+	// as in use
+
+	// The example code here marks all physical pages as free.
+	// However this is not truly the case.  What memory is free?
+	//  1) Mark physical page 0 as in use.
+	//     This way we preserve the real-mode IDT and BIOS structures
+	//     in case we ever need them.  (Currently we don't, but...)
+	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
+	//     is free.
+	//  3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
+	//     never be allocated.
+	//  4) Then extended memory [EXTPHYSMEM, ...).
+	//     Some of it is in use, some is free. Where is the kernel
+	//     in physical memory?  Which pages are already in use for
+	//     page tables and other data structures?
+	//
+	// Change the code to reflect this.
+	// NB: DO NOT actually touch the physical memory corresponding to
+	// free pages!
+	size_t i;
+
   // 首先，计算在extmem区域已经被占用的页的个数
   int num_alloc=((uint32_t)boot_alloc(0)-KERNBASE)/PGSIZE;
   int num_iohole_begin=IOPHYSMEM/PGSIZE;
   int num_iohole_end=EXTPHYSMEM/PGSIZE;
-  size_t i;
   for (i = 0; i < npages; i++) {
     if(i==0)//page 0 is not free
     {
@@ -299,6 +373,12 @@ page_init(void)
       // 所以，[npages_basemem,num_iohole_end+num_alloc)都是不能分配的。
       pages[i].pp_ref=1;
     }
+      // >>>>>>>code of lab4
+      // 根据作业说明不能将位于MPENTRY_PADDR的page添加到free list中
+      else if (i == MPENTRY_PADDR/PGSIZE) {
+          continue;
+      }
+      // <<<<<<
     else
     {
       // 其余的部分都可以使用
@@ -307,6 +387,7 @@ page_init(void)
       page_free_list = &pages[i];
     }
   }
+
 }
 
 //
@@ -562,8 +643,8 @@ void
 tlb_invalidate(pde_t *pgdir, void *va)
 {
 	// Flush the entry only if we're modifying the current address space.
-	// For now, there is only one address space, so always invalidate.
-	invlpg(va);
+	if (!curenv || curenv->env_pgdir == pgdir)
+		invlpg(va);
 }
 
 static uintptr_t user_mem_check_addr;
@@ -687,6 +768,8 @@ check_page_free_list(bool only_low_memory)
 		assert(page2pa(pp) != EXTPHYSMEM - PGSIZE);
 		assert(page2pa(pp) != EXTPHYSMEM);
 		assert(page2pa(pp) < EXTPHYSMEM || (char *) page2kva(pp) >= first_free_page);
+		// (new test for lab 4)
+		assert(page2pa(pp) != MPENTRY_PADDR);
 
 		if (page2pa(pp) < EXTPHYSMEM)
 			++nfree_basemem;
@@ -806,10 +889,20 @@ check_kern_pgdir(void)
 	for (i = 0; i < npages * PGSIZE; i += PGSIZE)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
+	// check IO mem (new in lab 4)
+	for (i = IOMEMBASE; i < -PGSIZE; i += PGSIZE)
+		assert(check_va2pa(pgdir, i) == i);
+
 	// check kernel stack
-	for (i = 0; i < KSTKSIZE; i += PGSIZE)
-		assert(check_va2pa(pgdir, KSTACKTOP - KSTKSIZE + i) == PADDR(bootstack) + i);
-	assert(check_va2pa(pgdir, KSTACKTOP - PTSIZE) == ~0);
+	// (updated in lab 4 to check per-CPU kernel stacks)
+	for (n = 0; n < NCPU; n++) {
+		uint32_t base = KSTACKTOP - (KSTKSIZE + KSTKGAP) * (n + 1);
+		for (i = 0; i < KSTKSIZE; i += PGSIZE)
+			assert(check_va2pa(pgdir, base + KSTKGAP + i)
+				== PADDR(percpu_kstacks[n]) + i);
+		for (i = 0; i < KSTKGAP; i += PGSIZE)
+			assert(check_va2pa(pgdir, base + i) == ~0);
+	}
 
 	// check PDE permissions
 	for (i = 0; i < NPDENTRIES; i++) {

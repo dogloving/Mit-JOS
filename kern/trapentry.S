@@ -4,6 +4,7 @@
 #include <inc/memlayout.h>
 #include <inc/trap.h>
 
+#include <kern/picirq.h>
 
 
 ###################################################################
@@ -70,6 +71,13 @@
 	TRAPHANDLER_NOEC(routine_mchk,T_MCHK);
 	TRAPHANDLER_NOEC(routine_simderr,T_SIMDERR);
 	TRAPHANDLER_NOEC(routine_syscall,T_SYSCALL); /* for task6 */
+        //外部中断
+	TRAPHANDLER_NOEC(irq_timer,IRQ_OFFSET+IRQ_TIMER);
+	TRAPHANDLER_NOEC(irq_kbd,IRQ_OFFSET+IRQ_KBD);
+	TRAPHANDLER_NOEC(irq_serial,IRQ_OFFSET+IRQ_SERIAL);
+	TRAPHANDLER_NOEC(irq_spurious,IRQ_OFFSET+IRQ_SPURIOUS);
+	TRAPHANDLER_NOEC(irq_ide,IRQ_OFFSET+IRQ_IDE);
+	TRAPHANDLER_NOEC(irq_error,IRQ_OFFSET+IRQ_ERROR);
 
 
 /*
