@@ -8,8 +8,6 @@
 
 #include <kern/pmap.h>
 #include <kern/kclock.h>
-#include <kern/env.h>
-#include <kern/cpu.h>
 
 // These variables are set by i386_detect_memory()
 size_t npages;			// Amount of physical memory (in pages)
@@ -59,7 +57,6 @@ i386_detect_memory(void)
 // Set up memory mappings above UTOP.
 // --------------------------------------------------------------
 
-static void mem_init_mp(void);
 static void check_page_free_list(bool only_low_memory);
 static void check_page_alloc(void);
 static void check_kern_pgdir(void);
@@ -145,41 +142,34 @@ mem_init(void)
 	// The kernel uses this array to keep track of physical pages: for
 	// each physical page, there is a corresponding struct Page in this
 	// array.  'npages' is the number of physical pages in memory.
-    // LAB 3: Your code goes here:
+	// Your code goes here:
     // struct Page是用来记录页分配情况的结构，npages是物理页的个数，
-    // 所以一共需要sizeof(struct Page)*npages bytes 空间来存储这些信息。
-    // 分配空间并用pages指针指向分配的空间，同时初始化。
-    pages=(struct Page *)boot_alloc(sizeof(struct Page)*npages);
-    memset(pages,0,sizeof(struct Page)*npages);
+// 所以一共需要sizeof(struct Page)*npages bytes 空间来存储这些信息。
+// 分配空间并用pages指针指向分配的空间，同时初始化。
+pages=(struct Page *)boot_alloc(sizeof(struct Page)*npages);
+memset(pages,0,sizeof(struct Page)*npages);
 
-    // perm是用来记录权限的。
-    // n=ROUNDUP(npages*sizeof(struct Page), PGSIZE)计算了页表本身的大小
-    // page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)的作用是
-    // 把虚拟地址 va映射到物理页 pp , 页表 pgdir
-    // boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)的作用是
+// perm是用来记录权限的。
+// n=ROUNDUP(npages*sizeof(struct Page), PGSIZE)计算了页表本身的大小
+// page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)的作用是
+// 把虚拟地址 va映射到物理页 pp , 页表 pgdir
+// boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)的作用是
 // 把虚拟地址空间[va, va+size) 映射到物理地址[pa, pa+size), 页表 pgdir
-    int perm = PTE_U | PTE_P;
-    n = ROUNDUP(npages*sizeof(struct Page), PGSIZE);
+int perm = PTE_U | PTE_P;
+n = ROUNDUP(npages*sizeof(struct Page), PGSIZE);
 
-    // 下面的代码是建立虚拟地址[UPAGES,UPAGES)的部分，映射pages的地址
-    for(int i=0; i<n; i= i+PGSIZE)
-    page_insert(kern_pgdir, pa2page(PADDR(pages) + i), (void *) (UPAGES +i),perm);
+// 下面的代码是建立虚拟地址[UPAGES,UPAGES)的部分，映射pages的地址
+for(int i=0; i<n; i= i+PGSIZE)
+  page_insert(kern_pgdir, pa2page(PADDR(pages) + i), (void *) (UPAGES +i),perm);
 
-    // 然后建立`[KSTACKTOP-KSTKSIZE, KSTACKTOP)`部分，映射bootstack的地址
-    perm = PTE_P|PTE_W;
-    boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, ROUNDUP(KSTKSIZE,PGSIZE), PADDR(bootstack), perm);
+// 然后建立`[KSTACKTOP-KSTKSIZE, KSTACKTOP)`部分，映射bootstack的地址
+perm = PTE_P|PTE_W;
+boot_map_region(kern_pgdir, KSTACKTOP-KSTKSIZE, ROUNDUP(KSTKSIZE,PGSIZE), PADDR(bootstack), perm);
 
-    // 最后是`[KERNBASE, 2^32)`部分虚拟地址，映射`[0, 2^32 - KERNBASE)`部分的物理地址
-    perm=PTE_W|PTE_P;
-    boot_map_region(kern_pgdir,KERNBASE,ROUNDUP((0xFFFFFFFF-KERNBASE),PGSIZE),0,perm);
+// 最后是`[KERNBASE, 2^32)`部分虚拟地址，映射`[0, 2^32 - KERNBASE)`部分的物理地址
+perm=PTE_W|PTE_P;
+boot_map_region(kern_pgdir,KERNBASE,ROUNDUP((0xFFFFFFFF-KERNBASE),PGSIZE),0,perm);
 
-
-	//////////////////////////////////////////////////////////////////////
-	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
-	// LAB 3: Your code here.
-    // 分配环境数组并初始化
-    envs = (struct Env*) boot_alloc(sizeof(struct Env) * NENV);
-    memset(envs, 0, sizeof(struct Env) * NENV);
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -194,54 +184,48 @@ mem_init(void)
 	check_page();
 
 	//////////////////////////////////////////////////////////////////////
-    // Now we set up virtual memory
+// Now we set up virtual memory
 
-    //////////////////////////////////////////////////////////////////////
-    // Map 'pages' read-only by the user at linear address UPAGES
-    // Permissions:
-    //    - the new image at UPAGES -- kernel R, user R
-    //      (ie. perm = PTE_U | PTE_P)
-    //    - pages itself -- kernel RW, user NONE
-    //    Lab3:
-    // Your code goes here:
-    // 将数组映射到物理内存中,从[va, va + size)映射到[pa, pa + size),boot_map_region(pde_t *pgdir, uinitptr va, size_t size, physaddr_t pa, int perm);
-    boot_map_region(kern_pgdir, UENVS, ROUNDUP(sizeof(struct Env) * NENV, PGSIZE), PADDR((void*)envs), PTE_U);
+//////////////////////////////////////////////////////////////////////
+// Map 'pages' read-only by the user at linear address UPAGES
+// Permissions:
+//    - the new image at UPAGES -- kernel R, user R
+//      (ie. perm = PTE_U | PTE_P)
+//    - pages itself -- kernel RW, user NONE
+// Your code goes here:
 
-    perm = PTE_U | PTE_P;
-    n = ROUNDUP(npages*sizeof(struct Page), PGSIZE);
-    for(int i=0; i<n; i= i+PGSIZE)
-        page_insert(kern_pgdir, pa2page(PADDR(pages) + i), (void *) (UPAGES +i), perm);
+perm = PTE_U | PTE_P;
+n = ROUNDUP(npages*sizeof(struct Page), PGSIZE);
+for(int i=0; i<n; i= i+PGSIZE)
+    page_insert(kern_pgdir, pa2page(PADDR(pages) + i), (void *) (UPAGES +i), perm);
 
-    //////////////////////////////////////////////////////////////////////
-    // Use the physical memory that 'bootstack' refers to as the kernel
-    // stack.  The kernel stack grows down from virtual address KSTACKTOP.
-    // We consider the entire range from [KSTACKTOP-PTSIZE, KSTACKTOP)
-    // to be the kernel stack, but break this into two pieces:
-    //     * [KSTACKTOP-KSTKSIZE, KSTACKTOP) -- backed by physical memory
-    //     * [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not backed; so if
-    //       the kernel overflows its stack, it will fault rather than
-    //       overwrite memory.  Known as a "guard page".
-    //     Permissions: kernel RW, user NONE
-    // Your code goes here:
-    //boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+//////////////////////////////////////////////////////////////////////
+// Use the physical memory that 'bootstack' refers to as the kernel
+// stack.  The kernel stack grows down from virtual address KSTACKTOP.
+// We consider the entire range from [KSTACKTOP-PTSIZE, KSTACKTOP)
+// to be the kernel stack, but break this into two pieces:
+//     * [KSTACKTOP-KSTKSIZE, KSTACKTOP) -- backed by physical memory
+//     * [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not backed; so if
+//       the kernel overflows its stack, it will fault rather than
+//       overwrite memory.  Known as a "guard page".
+//     Permissions: kernel RW, user NONE
+// Your code goes here:
+//boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 
-    perm = PTE_P|PTE_W;
-    boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,ROUNDUP(KSTKSIZE,PGSIZE),PADDR(bootstack),perm);
+perm = PTE_P|PTE_W;
+boot_map_region(kern_pgdir,KSTACKTOP-KSTKSIZE,ROUNDUP(KSTKSIZE,PGSIZE),PADDR(bootstack),perm);
 
-    //////////////////////////////////////////////////////////////////////
-    // Map all of physical memory at KERNBASE.
-    // Ie.  the VA range [KERNBASE, 2^32) should map to
-    //      the PA range [0, 2^32 - KERNBASE)
-    // We might not have 2^32 - KERNBASE bytes of physical memory, but
-    // we just set up the mapping anyway.
-    // Permissions: kernel RW, user NONE
-    // Your code goes here:
+//////////////////////////////////////////////////////////////////////
+// Map all of physical memory at KERNBASE.
+// Ie.  the VA range [KERNBASE, 2^32) should map to
+//      the PA range [0, 2^32 - KERNBASE)
+// We might not have 2^32 - KERNBASE bytes of physical memory, but
+// we just set up the mapping anyway.
+// Permissions: kernel RW, user NONE
+// Your code goes here:
 
-    perm=PTE_W|PTE_P;
-    boot_map_region(kern_pgdir,KERNBASE,ROUNDUP((0xFFFFFFFF-KERNBASE),PGSIZE),0,perm);
-
-	// Initialize the SMP-related parts of the memory map
-	mem_init_mp();
+perm=PTE_W|PTE_P;
+boot_map_region(kern_pgdir,KERNBASE,ROUNDUP((0xFFFFFFFF-KERNBASE),PGSIZE),0,perm);
 
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
@@ -268,52 +252,6 @@ mem_init(void)
 	check_page_installed_pgdir();
 }
 
-// Modify mappings in kern_pgdir to support SMP
-//   - Remap [IOMEMBASE, 2^32) to physical address [IOMEM_PADDR, 2^32)
-//   - Map the per-CPU stacks in the region [KSTACKTOP-PTSIZE, KSTACKTOP)
-// See the revised inc/memlayout.h
-// 修改kern_pgdir中的映射以支持SMP：1. 重新将[IOMEMBASE, 2^32)映射到物理地址的[IOMEM_PADDR, 2^32); 
-// 2. 映射位于[KSTACKTOP-PTSIZE, KSTACKTOP)的per-CPU
-// 在之前的作业中，我们已经将bootstack映射的物理内存(just below KSTACKTOP)作为BSP的kernel stack。
-// 现在该函数主要将每个CPU的内核堆栈映射到这个区域，其中KSTKGAP的size大小的保护页作为缓冲区
-static void
-mem_init_mp(void)
-{
-	// Create a direct mapping at the top of virtual address space starting
-	// at IOMEMBASE for accessing the LAPIC unit using memory-mapped I/O.
-    boot_map_region(kern_pgdir, IOMEMBASE, -IOMEMBASE, IOMEM_PADDR, PTE_W);
-
-	// Map per-CPU stacks starting at KSTACKTOP, for up to 'NCPU' CPUs.
-	//
-	// For CPU i, use the physical memory that 'percpu_kstacks[i]' refers
-	// to as its kernel stack. CPU i's kernel stack grows down from virtual
-	// address kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP), and is
-	// divided into two pieces, just like the single stack you set up in
-	// mem_init:
-	//     * [kstacktop_i - KSTKSIZE, kstacktop_i)
-	//          -- backed by physical memory
-	//     * [kstacktop_i - (KSTKSIZE + KSTKGAP), kstacktop_i - KSTKSIZE)
-	//          -- not backed; so if the kernel overflows its stack,
-	//             it will fault rather than overwrite another CPU's stack.
-	//             Known as a "guard page".
-	//     Permissions: kernel RW, user NONE
-	// 映射从KSTAXKTOP开始的per-CPU，至多有NCPU个CPU
-    // 对于CPU i，将percpu_kstacks[i]指向的物理内存作为他的kernel stack，
-    // CPU i的kernel stack 从虚拟地址kstacktop_i=KSTAXKTOP - i * (KSTKSIZE + KSTKGAP)处
-    // 向下增长，并且被分成两部分:1. KSTKSIZE的kernel stack；2. KSTKGAP的保护页(缓冲区，
-    // 防止栈溢出影响了其他cpu的kernel stack)
-	// LAB 4: Your code here:
-    int i = 0;
-    uintptr_t kstacktop_i;
-    for (i = 0; i < NCPU; ++i) {
-        kstacktop_i = KSTACKTOP - i * (KSTKSIZE + KSTKGAP);
-        // 该函数在lab1中实现boot_map_region(pde_t *pgdir, uinitptr va, size_t size, phyaddr_t pa, int perm)
-        // ，主要功能是将虚拟地址[va, va+size)与物理地址[pa, pa+size)进行映射,并将映射关系加到padir中
-        boot_map_region(kern_pgdir, kstacktop_i - KSTKSIZE, ROUNDUP(KSTKSIZE, PGSIZE), PADDR(percpu_kstacks[i]), PTE_W | PTE_P);
-    }
-
-}
-
 // --------------------------------------------------------------
 // Tracking of physical pages.
 // The 'pages' array has one 'struct Page' entry per physical page.
@@ -329,34 +267,11 @@ mem_init_mp(void)
 void
 page_init(void)
 {
-
-	// LAB 4:
-	// Change your code to mark the physical page at MPENTRY_PADDR
-	// as in use
-
-	// The example code here marks all physical pages as free.
-	// However this is not truly the case.  What memory is free?
-	//  1) Mark physical page 0 as in use.
-	//     This way we preserve the real-mode IDT and BIOS structures
-	//     in case we ever need them.  (Currently we don't, but...)
-	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
-	//     is free.
-	//  3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
-	//     never be allocated.
-	//  4) Then extended memory [EXTPHYSMEM, ...).
-	//     Some of it is in use, some is free. Where is the kernel
-	//     in physical memory?  Which pages are already in use for
-	//     page tables and other data structures?
-	//
-	// Change the code to reflect this.
-	// NB: DO NOT actually touch the physical memory corresponding to
-	// free pages!
-	size_t i;
-
   // 首先，计算在extmem区域已经被占用的页的个数
   int num_alloc=((uint32_t)boot_alloc(0)-KERNBASE)/PGSIZE;
   int num_iohole_begin=IOPHYSMEM/PGSIZE;
   int num_iohole_end=EXTPHYSMEM/PGSIZE;
+  size_t i;
   for (i = 0; i < npages; i++) {
     if(i==0)//page 0 is not free
     {
@@ -373,12 +288,6 @@ page_init(void)
       // 所以，[npages_basemem,num_iohole_end+num_alloc)都是不能分配的。
       pages[i].pp_ref=1;
     }
-      // >>>>>>>code of lab4
-      // 根据作业说明不能将位于MPENTRY_PADDR的page添加到free list中
-      else if (i == MPENTRY_PADDR/PGSIZE) {
-          continue;
-      }
-      // <<<<<<
     else
     {
       // 其余的部分都可以使用
@@ -387,7 +296,6 @@ page_init(void)
       page_free_list = &pages[i];
     }
   }
-
 }
 
 //
@@ -643,76 +551,8 @@ void
 tlb_invalidate(pde_t *pgdir, void *va)
 {
 	// Flush the entry only if we're modifying the current address space.
-	if (!curenv || curenv->env_pgdir == pgdir)
-		invlpg(va);
-}
-
-static uintptr_t user_mem_check_addr;
-
-//
-// Check that an environment is allowed to access the range of memory
-// [va, va+len) with permissions 'perm | PTE_P'.
-// Normally 'perm' will contain PTE_U at least, but this is not required.
-// 'va' and 'len' need not be page-aligned; you must test every page that
-// contains any of that range.  You will test either 'len/PGSIZE',
-// 'len/PGSIZE + 1', or 'len/PGSIZE + 2' pages.
-//
-// A user program can access a virtual address if (1) the address is below
-// ULIM, and (2) the page table gives it permission.  These are exactly
-// the tests you should implement here.
-//
-// If there is an error, set the 'user_mem_check_addr' variable to the first
-// erroneous virtual address.
-//
-// Returns 0 if the user program can access this range of addresses,
-// and -E_FAULT otherwise.
-// 检查权限为perm的用户进程能否成功访问[va, va + len)的全部页面，可以访问的条件是地址在ULIM之下且页表给予了权限。如果发生错误将第一个错误的虚拟地址放在user_mem_check_addr中并且返回-E_FAULT
-int
-user_mem_check(struct Env *env, const void *va, size_t len, int perm)
-{
-	// LAB 3: Your code here.
-    uint32_t start = (uint32_t)va;
-    uint32_t end = ROUNDUP((uint32_t)va + len, PGSIZE);
-    perm = perm | PTE_P | PTE_U;
-    pte_t *pte;
-    for (; start < end; start += PGSIZE) {
-        // 1) 地址在ULIM之下 2) 页表给予了权限
-        if (start < ULIM) {
-            // pgdir_walk返回va对应的page table入口地址或者是NULL
-            pte = pgdir_walk(env->env_pgdir, (void*)start, 0);
-            if (pte != NULL && (*pte & perm) == perm) {
-                // 如果入口地址不为NULL且赋予了权限，表示可以成功访问
-                continue;
-            }
-        }
-        // 需要4K对齐后存入user_mem_check_addr 
-        if (start == (uint32_t)va) {
-            user_mem_check_addr = start;
-        }
-        else {
-            user_mem_check_addr = ROUNDDOWN(start, PGSIZE);
-        }
-        return -E_FAULT;
-    }
-    
-	return 0;
-}
-
-//
-// Checks that environment 'env' is allowed to access the range
-// of memory [va, va+len) with permissions 'perm | PTE_U | PTE_P'.
-// If it can, then the function simply returns.
-// If it cannot, 'env' is destroyed and, if env is the current
-// environment, this function will not return.
-//
-void
-user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
-{
-	if (user_mem_check(env, va, len, perm | PTE_U) < 0) {
-		cprintf("[%08x] user_mem_check assertion failure for "
-			"va %08x\n", env->env_id, user_mem_check_addr);
-		env_destroy(env);	// may not return
-	}
+	// For now, there is only one address space, so always invalidate.
+	invlpg(va);
 }
 
 
@@ -727,7 +567,7 @@ static void
 check_page_free_list(bool only_low_memory)
 {
 	struct Page *pp;
-	unsigned pdx_limit = only_low_memory ? 1 : NPDENTRIES;
+	int pdx_limit = only_low_memory ? 1 : NPDENTRIES;
 	int nfree_basemem = 0, nfree_extmem = 0;
 	char *first_free_page;
 
@@ -768,8 +608,6 @@ check_page_free_list(bool only_low_memory)
 		assert(page2pa(pp) != EXTPHYSMEM - PGSIZE);
 		assert(page2pa(pp) != EXTPHYSMEM);
 		assert(page2pa(pp) < EXTPHYSMEM || (char *) page2kva(pp) >= first_free_page);
-		// (new test for lab 4)
-		assert(page2pa(pp) != MPENTRY_PADDR);
 
 		if (page2pa(pp) < EXTPHYSMEM)
 			++nfree_basemem;
@@ -880,29 +718,15 @@ check_kern_pgdir(void)
 	for (i = 0; i < n; i += PGSIZE)
 		assert(check_va2pa(pgdir, UPAGES + i) == PADDR(pages) + i);
 
-	// check envs array (new test for lab 3)
-	n = ROUNDUP(NENV*sizeof(struct Env), PGSIZE);
-	for (i = 0; i < n; i += PGSIZE)
-		assert(check_va2pa(pgdir, UENVS + i) == PADDR(envs) + i);
 
 	// check phys mem
 	for (i = 0; i < npages * PGSIZE; i += PGSIZE)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
-	// check IO mem (new in lab 4)
-	for (i = IOMEMBASE; i < -PGSIZE; i += PGSIZE)
-		assert(check_va2pa(pgdir, i) == i);
-
 	// check kernel stack
-	// (updated in lab 4 to check per-CPU kernel stacks)
-	for (n = 0; n < NCPU; n++) {
-		uint32_t base = KSTACKTOP - (KSTKSIZE + KSTKGAP) * (n + 1);
-		for (i = 0; i < KSTKSIZE; i += PGSIZE)
-			assert(check_va2pa(pgdir, base + KSTKGAP + i)
-				== PADDR(percpu_kstacks[n]) + i);
-		for (i = 0; i < KSTKGAP; i += PGSIZE)
-			assert(check_va2pa(pgdir, base + i) == ~0);
-	}
+	for (i = 0; i < KSTKSIZE; i += PGSIZE)
+		assert(check_va2pa(pgdir, KSTACKTOP - KSTKSIZE + i) == PADDR(bootstack) + i);
+	assert(check_va2pa(pgdir, KSTACKTOP - PTSIZE) == ~0);
 
 	// check PDE permissions
 	for (i = 0; i < NPDENTRIES; i++) {
@@ -910,7 +734,6 @@ check_kern_pgdir(void)
 		case PDX(UVPT):
 		case PDX(KSTACKTOP-1):
 		case PDX(UPAGES):
-		case PDX(UENVS):
 			assert(pgdir[i] & PTE_P);
 			break;
 		default:

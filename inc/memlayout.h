@@ -16,15 +16,13 @@
 #define GD_KD     0x10     // kernel data
 #define GD_UT     0x18     // user text
 #define GD_UD     0x20     // user data
-#define GD_TSS0   0x28     // Task segment selector for CPU 0
+#define GD_TSS    0x28     // Task segment selector
 
 /*
  * Virtual memory map:                                Permissions
  *                                                    kernel/user
  *
  *    4 Gig -------->  +------------------------------+
- *                     |       Memory-mapped I/O      | RW/--
- *    IOMEMBASE ---->  +------------------------------+ 0xfe000000
  *                     |                              | RW/--
  *                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *                     :              .               :
@@ -35,18 +33,11 @@
  *                     |   Remapped Physical Memory   | RW/--
  *                     |                              | RW/--
  *    KERNBASE ----->  +------------------------------+ 0xf0000000
- *                     |      Invalid Memory (*)      | --/--  PTSIZE
+ *                     |       Empty Memory (*)       | --/--  PTSIZE
  *    KSTACKTOP ---->  +------------------------------+ 0xefc00000      --+
- *                     |     CPU0's Kernel Stack      | RW/--  KSTKSIZE   |
- *                     | - - - - - - - - - - - - - - -|                   |
- *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
- *                     +------------------------------+                   |
- *                     |     CPU1's Kernel Stack      | RW/--  KSTKSIZE   |
+ *                     |         Kernel Stack         | RW/--  KSTKSIZE   |
  *                     | - - - - - - - - - - - - - - -|                 PTSIZE
- *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
- *                     +------------------------------+                   |
- *                     :              .               :                   |
- *                     :              .               :                   |
+ *                     |      Invalid Memory (*)      | --/--             |
  *    ULIM     ------> +------------------------------+ 0xef800000      --+
  *                     |  Cur. Page Table (User R-)   | R-/R-  PTSIZE
  *    UVPT      ---->  +------------------------------+ 0xef400000
@@ -98,7 +89,6 @@
 // Kernel stack.
 #define KSTACKTOP	(KERNBASE - PTSIZE)
 #define KSTKSIZE	(8*PGSIZE)   		// size of a kernel stack
-#define KSTKGAP		(8*PGSIZE)   		// size of a kernel stack guard
 #define ULIM		(KSTACKTOP - PTSIZE) 
 
 /*
@@ -136,13 +126,6 @@
 // The location of the user-level STABS data structure
 #define USTABDATA	(PTSIZE / 2)	
 
-// Physical address of startup code for non-boot CPUs (APs)
-#define MPENTRY_PADDR	0x7000
-
-// The physical address where IO memory starts
-#define IOMEM_PADDR	0xfe000000
-// The virtual address we map IO memory to
-#define IOMEMBASE	0xfe000000
 
 #ifndef __ASSEMBLER__
 

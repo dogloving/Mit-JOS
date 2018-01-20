@@ -40,14 +40,6 @@ strcpy(char *dst, const char *src)
 }
 
 char *
-strcat(char *dst, const char *src)
-{
-	int len = strlen(dst);
-	strcpy(dst + len, src);
-	return dst;
-}
-
-char *
 strncpy(char *dst, const char *src, size_t size) {
 	size_t i;
 	char *ret;

@@ -4,20 +4,11 @@
 #include <inc/assert.h>
 
 #include <kern/kdebug.h>
-#include <kern/pmap.h>
-#include <kern/env.h>
 
 extern const struct Stab __STAB_BEGIN__[];	// Beginning of stabs table
 extern const struct Stab __STAB_END__[];	// End of stabs table
 extern const char __STABSTR_BEGIN__[];		// Beginning of string table
 extern const char __STABSTR_END__[];		// End of string table
-
-struct UserStabData {
-	const struct Stab *stabs;
-	const struct Stab *stab_end;
-	const char *stabstr;
-	const char *stabstr_end;
-};
 
 
 // stab_binsearch(stabs, region_left, region_right, type, addr)
@@ -109,7 +100,7 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 //	instruction address, 'addr'.  Returns 0 if information was found, and
 //	negative if not.  But even if it returns negative it has stored some
 //	information into '*info'.
-// 用于确定某一地址addr对应的具体调试信息。如果找到信息返回0,否则返回负数。
+//
 int
 debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 {
@@ -132,34 +123,8 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 		stabstr = __STABSTR_BEGIN__;
 		stabstr_end = __STABSTR_END__;
 	} else {
-		// The user-application linker script, user/user.ld,
-		// puts information about the application's stabs (equivalent
-		// to __STAB_BEGIN__, __STAB_END__, __STABSTR_BEGIN__, and
-		// __STABSTR_END__) in a structure located at virtual address
-		// USTABDATA.
-		const struct UserStabData *usd = (const struct UserStabData *) USTABDATA;
-
-		// Make sure this memory is valid.
-		// Return -1 if it is not.  Hint: Call user_mem_check.
-		// LAB 3: Your code here.
-
-		stabs = usd->stabs;
-		stab_end = usd->stab_end;
-		stabstr = usd->stabstr;
-		stabstr_end = usd->stabstr_end;
-		// Make sure the STABS and string table memory is valid.
-		// LAB 3: Your code here.
-        // 分别对usd，stabs，stabstr调用user_mem_check
-        // user_mem_check(struct Env* env, const void* va, size_t len, int perm) 检查权限为perm的用户进程能否访问[va, va + len)范围内的虚拟内存，如果不能就返回-1
-        if (user_mem_check(curenv, usd, sizeof(struct UserStabData), PTE_U) < 0) {
-            return -1;
-        }
-        if (user_mem_check(curenv, stabs, (uint32_t)stab_end - (uint32_t)stabs, PTE_U) < 0) {
-            return -1;
-        }
-        if (user_mem_check(curenv, stabstr, stabstr_end - stabstr, PTE_U) < 0) {
-            return -1;
-        }
+		// Can't search for user-level addresses yet!
+  	        panic("User address");
 	}
 
 	// String table validity checks
@@ -214,15 +179,7 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 	//	Look at the STABS documentation and <inc/stab.h> to find
 	//	which one.
 	// Your code here.
-    // LAB 3 
-    // stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right, int type, uintptr_t addr)
-    stab_binsearch(stabs, &lline, &rline, N_SLINE, addr);
-    // 根据上面的注释，如果lline > rline，说明没有找到调试信息;否则就将找到的信息存在eip_line中
-    if (lline <= rline) {
-        info->eip_line = stabs[rline].n_desc;
-    } else {
-        return -1;
-    }
+
 	
 	// Search backwards from the line number for the relevant filename
 	// stab.
